@@ -87,7 +87,7 @@
   <header>
     <div>
       <h1>📸 รายงานรูปประจำเดือน</h1>
-      <p class="sub"><span id="subtitle">&nbsp;</span> <span class="live" id="live" hidden>● อัปเดตอัตโนมัติ</span></p>
+      <p class="sub"><span id="subtitle">&nbsp;</span> <span class="live" id="live">● อัปเดตทุก 15 วินาที</span></p>
     </div>
     <div class="controls">
       <select id="month" aria-label="เลือกเดือน"></select>
@@ -126,6 +126,7 @@ let viewing = { srcs: [], i: 0 };
 // keep = คงเดือนที่เลือกไว้ (ใช้ตอนรีเฟรชอัตโนมัติ)
 async function loadMonths(keep) {
   const months = await (await fetch('/api/months')).json();
+  monthsSig = JSON.stringify(months);
   const sel = $('month');
   if (!months.length) {
     const now = new Date().toISOString().slice(0, 7);
@@ -145,6 +146,19 @@ function scheduleRefresh() {
   refreshTimer = setTimeout(() => loadMonths($('month').value).catch((err) => console.error(err)), 1500);
 }
 
+// สำรอง: เช็คยอดรวมทุก 15 วินาที และตอนกลับมาที่แท็บ เผื่อ realtime ต่อไม่ติด (เช่น เน็ตบริษัทบล็อก WebSocket)
+// โหลดรายงานใหม่เฉพาะเมื่อยอดเปลี่ยน รูปจะได้ไม่กระพริบ
+let monthsSig = '';
+async function checkForUpdates() {
+  if (document.hidden) return;
+  try {
+    const sig = JSON.stringify(await (await fetch('/api/months')).json());
+    if (sig !== monthsSig) scheduleRefresh();
+  } catch (err) { console.error('check updates:', err); }
+}
+setInterval(checkForUpdates, 15000);
+document.addEventListener('visibilitychange', checkForUpdates);
+
 async function startRealtime() {
   const cfg = await (await fetch('/api/config')).json();
   if (!cfg.supabaseKey || !window.supabase) return;
@@ -152,9 +166,10 @@ async function startRealtime() {
   window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey)
     .channel('photos')
     .on('broadcast', { event: 'new_photo' }, scheduleRefresh)
-    .subscribe((status) => {
+    .subscribe((status, err) => {
       const live = status === 'SUBSCRIBED';
-      $('live').hidden = !live;
+      $('live').textContent = live ? '● อัปเดตทันที' : '● อัปเดตทุก 15 วินาที';
+      if (!live) console.warn('realtime:', status, err?.message ?? '');
       // ต่อใหม่หลังหลุด (เช่น คอมพ์หลับ) อาจพลาดสัญญาณไป จึงโหลดใหม่หนึ่งครั้ง
       if (live && connectedBefore) scheduleRefresh();
       if (live) connectedBefore = true;
