@@ -59,7 +59,10 @@
     .big { font-size: 1.5rem; }
   }
   .jobs { display: grid; gap: 16px; }
-  .job { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; break-inside: avoid; }
+  .job { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; break-inside: avoid;
+    display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: 16px; align-items: start; }
+  .detail { min-width: 0; }
+  @media (max-width: 720px) { .job { grid-template-columns: 1fr; } }
   .job h3 { margin: 0 0 2px; font-size: 1.05rem; }
   .info { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0 12px; font-size: .88rem; }
   .info dt { color: var(--muted); }
@@ -69,7 +72,7 @@
   .discord { display: inline-block; margin-bottom: 12px; font-size: .85rem; color: var(--accent); text-decoration: none; }
   .discord:hover { text-decoration: underline; }
   .badge { display: inline-block; background: var(--accent); color: #fff; border-radius: 99px; padding: 1px 10px; font-size: .75rem; margin-left: 8px; vertical-align: middle; }
-  .thumbs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .thumbs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   .thumbs img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: zoom-in; display: block; }
   .empty { text-align: center; color: var(--muted); padding: 48px 0; }
   dialog { border: 0; padding: 0; background: transparent; max-width: 95vw; }
@@ -228,6 +231,7 @@ async function loadReport(month) {
   $('jobsList').innerHTML = r.jobs.length
     ? r.jobs.map((j, n) => `
         <article class="job">
+          <div class="detail">
           <h3>${esc(j.caption) || '<i>ไม่มีแคปชั่น</i>'}<span class="badge">${j.photos.length} รูป</span></h3>
           <dl class="info">
             <dt>👷 คนทำ</dt><dd>${j.workers.length ? esc(j.workers.map((w) => w.name).join(', ')) : '<span class="none">ไม่ระบุ</span>'}</dd>
@@ -237,6 +241,7 @@ async function loadReport(month) {
             <dt>🔗 ลิงก์รูป</dt><dd>${j.photos.map((p, k) => `<a href="${p.link}" target="_blank" rel="noopener">${k + 1}</a>`).join(' ')}</dd>
           </dl>
           ${j.message_url ? `<a class="discord" href="${esc(j.message_url)}" target="_blank" rel="noopener">เปิดโพสต์ใน Discord ↗</a>` : ''}
+          </div>
           <div class="thumbs" data-job="${n}">
             ${j.photos.map((p, k) => `<img loading="lazy" data-k="${k}" src="${p.url}" alt="${esc(j.caption || 'รูปงาน')} ${k + 1}">`).join('')}
           </div>
