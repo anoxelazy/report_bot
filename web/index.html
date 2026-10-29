@@ -18,6 +18,7 @@
   header { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
   h1 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
   .sub { margin: 4px 0 0; color: var(--muted); font-size: .95rem; }
+  .live { color: #23a55a; font-size: .8rem; margin-left: 8px; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .btn, select { font: inherit; font-size: .9rem; height: 38px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: border-color .15s, color .15s; }
   .btn:hover, select:hover { border-color: var(--accent); color: var(--accent); }
@@ -28,7 +29,8 @@
   .ico { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 1.3rem; background: color-mix(in srgb, var(--accent) 14%, transparent); }
   .lbl { font-size: .8rem; color: var(--muted); }
   .big { font-size: 1.8rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
-  .split { display: grid; gap: 12px; grid-template-columns: 2fr 1fr; margin-bottom: 20px; }
+  .split { display: grid; gap: 12px; grid-template-columns: 2fr 1fr 1fr; margin-bottom: 20px; }
+  @media (max-width: 960px) { .split { grid-template-columns: 1fr 1fr; } .split > :first-child { grid-column: 1 / -1; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
   .card h2 { margin: 0 0 14px; font-size: .9rem; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .card h2 small { font-weight: 400; color: var(--muted); font-size: .8rem; }
@@ -51,7 +53,7 @@
   .cnt small { display: block; color: var(--muted); font-size: .75rem; }
   @media (max-width: 720px) {
     .stats { grid-template-columns: repeat(2, 1fr); }
-    .split { grid-template-columns: 1fr; }
+    .split { grid-template-columns: 1fr; } .split > :first-child { grid-column: auto; }
     .sep { display: none; }
     .stat { padding: 12px; gap: 10px; } .ico { width: 38px; height: 38px; }
     .big { font-size: 1.5rem; }
@@ -68,16 +70,18 @@
   dialog::backdrop { background: rgba(0,0,0,.8); }
   .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2rem; background: rgba(0,0,0,.5); color: #fff; border: 0; border-radius: 50%; width: 44px; height: 44px; padding: 0; }
   #prev { left: 12px; } #next { right: 12px; }
+  .open { position: fixed; top: 12px; right: 12px; background: rgba(0,0,0,.6); color: #fff; padding: 6px 12px; border-radius: 8px; text-decoration: none; font-size: .85rem; }
   dialog img { max-width: 95vw; max-height: 90vh; border-radius: 8px; }
   @media print { .controls, dialog { display: none; } body { background: #fff; color: #000; } dialog { display: none; } }
 </style>
 </head>
 <body>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <main>
   <header>
     <div>
       <h1>📸 รายงานรูปประจำเดือน</h1>
-      <p class="sub" id="subtitle">&nbsp;</p>
+      <p class="sub"><span id="subtitle">&nbsp;</span> <span class="live" id="live" hidden>● อัปเดตอัตโนมัติ</span></p>
     </div>
     <div class="controls">
       <select id="month" aria-label="เลือกเดือน"></select>
@@ -98,11 +102,12 @@
 
   <section class="split">
     <div class="card"><h2>จำนวนงานรายวัน <small id="peak"></small></h2><div class="bars" id="bars"></div></div>
+    <div class="card"><h2>คนทำงาน</h2><ul class="users" id="workers"></ul></div>
     <div class="card"><h2>ผู้ส่งงาน</h2><ul class="users" id="users"></ul></div>
   </section>
 
   <section class="jobs" id="jobsList"></section>
-  <dialog id="viewer"><button class="nav" id="prev" aria-label="ก่อนหน้า">‹</button><img alt=""><button class="nav" id="next" aria-label="ถัดไป">›</button></dialog>
+  <dialog id="viewer"><button class="nav" id="prev" aria-label="ก่อนหน้า">‹</button><img alt=""><a class="open" id="open" target="_blank" rel="noopener">🔗 ลิงก์รูป</a><button class="nav" id="next" aria-label="ถัดไป">›</button></dialog>
 </main>
 
 <script>
@@ -112,7 +117,8 @@ const fmtTime = (ms) => new Date(ms).toLocaleString('th-TH', { dateStyle: 'mediu
 
 let viewing = { srcs: [], i: 0 };
 
-async function loadMonths() {
+// keep = คงเดือนที่เลือกไว้ (ใช้ตอนรีเฟรชอัตโนมัติ)
+async function loadMonths(keep) {
   const months = await (await fetch('/api/months')).json();
   const sel = $('month');
   if (!months.length) {
@@ -121,7 +127,32 @@ async function loadMonths() {
   } else {
     sel.innerHTML = months.map((m) => `<option value="${m.month}">${m.month} (${m.jobs} งาน / ${m.photos} รูป)</option>`).join('');
   }
-  loadReport(sel.value);
+  if (keep && months.some((m) => m.month === keep)) sel.value = keep;
+  await loadReport(sel.value);
+}
+
+// Realtime: ฐานข้อมูลส่งสัญญาณเมื่อมีรูปใหม่ แล้วหน้าเว็บโหลดข้อมูลใหม่ผ่าน API
+// รอสักครู่ก่อนโหลด เพราะงานหนึ่งส่งรูปมาหลายรูปติดกัน
+let refreshTimer;
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => loadMonths($('month').value).catch((err) => console.error(err)), 1500);
+}
+
+async function startRealtime() {
+  const cfg = await (await fetch('/api/config')).json();
+  if (!cfg.supabaseKey || !window.supabase) return;
+  let connectedBefore = false;
+  window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseKey)
+    .channel('photos')
+    .on('broadcast', { event: 'new_photo' }, scheduleRefresh)
+    .subscribe((status) => {
+      const live = status === 'SUBSCRIBED';
+      $('live').hidden = !live;
+      // ต่อใหม่หลังหลุด (เช่น คอมพ์หลับ) อาจพลาดสัญญาณไป จึงโหลดใหม่หนึ่งครั้ง
+      if (live && connectedBefore) scheduleRefresh();
+      if (live) connectedBefore = true;
+    });
 }
 
 function setExportLinks(month) {
@@ -163,11 +194,21 @@ async function loadReport(month) {
         </li>`).join('')
     : '<li style="color:var(--muted)">ยังไม่มีผู้ส่งงานในเดือนนี้</li>';
 
+  const topWorker = Math.max(1, ...r.byWorker.map((w) => w.jobs));
+  $('workers').innerHTML = r.byWorker.length
+    ? r.byWorker.map((w) => `
+        <li>
+          <span class="av">${esc(Array.from(w.name)[0] ?? '?')}</span>
+          <div class="who"><div class="nm">${esc(w.name)}</div><div class="meter"><i style="width:${(w.jobs / topWorker) * 100}%"></i></div></div>
+          <div class="cnt"><b>${w.jobs} งาน</b></div>
+        </li>`).join('')
+    : '<li style="color:var(--muted)">ยังไม่มีข้อมูลคนทำในเดือนนี้</li>';
+
   $('jobsList').innerHTML = r.jobs.length
     ? r.jobs.map((j, n) => `
         <article class="job">
           <h3>${esc(j.caption) || '<i>ไม่มีแคปชั่น</i>'}<span class="badge">${j.photos.length} รูป</span></h3>
-          <div class="meta">${esc(j.username)} · ${fmtTime(j.taken_at)}</div>
+          <div class="meta">${j.workers.length ? `👷 ${esc(j.workers.map((w) => w.name).join(', '))} · ` : ''}ส่งโดย ${esc(j.username)} · ${fmtTime(j.taken_at)}</div>
           <div class="thumbs" data-job="${n}">
             ${j.photos.map((p, k) => `<img loading="lazy" data-k="${k}" src="${p.url}" alt="${esc(j.caption || 'รูปงาน')} ${k + 1}">`).join('')}
           </div>
@@ -180,6 +221,7 @@ function show(i) {
   const n = viewing.srcs.length;
   viewing.i = (i + n) % n;
   $('viewer').querySelector('img').src = viewing.srcs[viewing.i];
+  $('open').href = viewing.links[viewing.i];
 }
 
 $('month').addEventListener('change', (e) => loadReport(e.target.value));
@@ -188,11 +230,13 @@ $('jobsList').addEventListener('click', (e) => {
   if (e.target.tagName !== 'IMG') return;
   const job = window.__jobs[Number(e.target.parentElement.dataset.job)];
   viewing.srcs = job.photos.map((p) => p.url);
+  viewing.links = job.photos.map((p) => p.link);
   show(Number(e.target.dataset.k));
   $('viewer').showModal();
 });
 $('prev').addEventListener('click', (e) => { e.stopPropagation(); show(viewing.i - 1); });
 $('next').addEventListener('click', (e) => { e.stopPropagation(); show(viewing.i + 1); });
+$('open').addEventListener('click', (e) => e.stopPropagation());
 $('viewer').addEventListener('click', () => $('viewer').close());
 document.addEventListener('keydown', (e) => {
   if (!$('viewer').open) return;
@@ -201,6 +245,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 loadMonths();
+startRealtime().catch((err) => console.error('realtime:', err));
 </script>
 </body>
 </html>

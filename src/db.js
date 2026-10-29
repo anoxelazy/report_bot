@@ -22,6 +22,17 @@ export async function uploadFile(filePath, buffer, contentType) {
   check(await supabase.storage.from(BUCKET).upload(filePath, buffer, { contentType, upsert: true }));
 }
 
+// ลิงก์ถาวรของรูป (เปิดแล้วเซิร์ฟเวอร์จะออกลิงก์ชั่วคราวให้ใหม่ทุกครั้ง) ใช้ attachment id ของ Discord
+const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/+$/, '');
+export const photoLink = (attachmentId) => `${PUBLIC_URL}/p/${attachmentId}`;
+
+// คืนลิงก์ชั่วคราวของรูป หรือ null ถ้าไม่พบ
+export async function signedPhotoUrl(attachmentId) {
+  const rows = check(await supabase.from('photos').select('file_path').eq('attachment_id', attachmentId).limit(1));
+  if (!rows.length) return null;
+  return check(await supabase.storage.from(BUCKET).createSignedUrl(rows[0].file_path, 5 * 60)).signedUrl;
+}
+
 export async function downloadFile(filePath) {
   const blob = check(await supabase.storage.from(BUCKET).download(filePath));
   return Buffer.from(await blob.arrayBuffer());
@@ -31,7 +42,7 @@ export async function downloadFile(filePath) {
 export async function insertPhoto(p) {
   const data = check(await supabase.from('photos').upsert({
     message_id: p.messageId, attachment_id: p.attachmentId, channel_id: p.channelId,
-    user_id: p.userId, username: p.username, caption: p.caption,
+    user_id: p.userId, username: p.username, caption: p.caption, workers: p.workers ?? [],
     file_path: p.filePath, taken_at: p.takenAt, month: p.month, day: p.day,
   }, { onConflict: 'attachment_id', ignoreDuplicates: true }).select('id'));
   return { changes: data.length };
@@ -69,13 +80,20 @@ export async function monthReport(month, { sign = true } = {}) {
   const jobMap = new Map();
   const dayJobs = new Map(); // day -> Set(message_id)
   const userStats = new Map(); // user_id -> { username, jobs:Set, photos }
+  const workerStats = new Map(); // worker id -> { name, jobs }
   for (const p of rows) {
     let job = jobMap.get(p.message_id);
     if (!job) {
-      job = { id: p.message_id, caption: p.caption, username: p.username, taken_at: p.taken_at, photos: [] };
+      const workers = p.workers ?? [];
+      job = { id: p.message_id, caption: p.caption, username: p.username, workers, taken_at: p.taken_at, photos: [] };
       jobMap.set(p.message_id, job);
+      for (const w of workers) {
+        let s = workerStats.get(w.id);
+        if (!s) workerStats.set(w.id, (s = { name: w.name, jobs: 0 }));
+        s.jobs++;
+      }
     }
-    job.photos.push({ id: p.id, file_path: p.file_path });
+    job.photos.push({ id: p.id, file_path: p.file_path, link: photoLink(p.attachment_id) });
 
     if (!dayJobs.has(p.day)) dayJobs.set(p.day, new Set());
     dayJobs.get(p.day).add(p.message_id);
@@ -99,6 +117,7 @@ export async function monthReport(month, { sign = true } = {}) {
     byUser: [...userStats.values()]
       .map((u) => ({ username: u.username, jobs: u.jobs.size, photos: u.photos }))
       .sort((a, b) => b.jobs - a.jobs),
+    byWorker: [...workerStats.values()].sort((a, b) => b.jobs - a.jobs),
     jobs: [...jobMap.values()],
   };
 }

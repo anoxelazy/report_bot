@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listMonths, monthReport } from './db.js';
+import { listMonths, monthReport, signedPhotoUrl } from './db.js';
 import { exportCsv, exportXlsx, exportZip } from './export.js';
 
 const WEB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
@@ -25,12 +25,28 @@ export function createApp() {
     if (!res.headersSent) res.status(500).json({ error: 'เกิดข้อผิดพลาดที่เซิร์ฟเวอร์' });
   };
 
+  // ค่าที่หน้าเว็บใช้ต่อ Supabase Realtime (publishable key เปิดเผยได้ ห้ามส่ง service key)
+  app.get('/api/config', (_req, res) => {
+    const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+    res.json(key ? { supabaseUrl: process.env.SUPABASE_URL, supabaseKey: key } : {});
+  });
+
   app.get('/api/months', async (_req, res) => {
     try { res.json(await listMonths()); } catch (err) { fail(res, err); }
   });
   app.get('/api/report/:month', async (req, res) => {
     if (!/^\d{4}-\d{2}$/.test(req.params.month)) return res.status(400).json({ error: 'month ต้องเป็น YYYY-MM' });
     try { res.json(await monthReport(req.params.month)); } catch (err) { fail(res, err); }
+  });
+
+  // ลิงก์ถาวรของรูป: ออกลิงก์ชั่วคราวใหม่แล้วพาไปที่รูป
+  app.get('/p/:attachmentId', async (req, res) => {
+    if (!/^\d+$/.test(req.params.attachmentId)) return res.status(404).send('ไม่พบรูป');
+    try {
+      const url = await signedPhotoUrl(req.params.attachmentId);
+      if (!url) return res.status(404).send('ไม่พบรูป');
+      res.set('Cache-Control', 'no-store').redirect(302, url);
+    } catch (err) { fail(res, err); }
   });
 
   app.get('/api/export/:month/:format', async (req, res) => {

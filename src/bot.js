@@ -4,7 +4,7 @@ import {
   ModalBuilder, LabelBuilder, FileUploadBuilder,
 } from 'discord.js';
 import path from 'node:path';
-import { insertPhoto, uploadFile } from './db.js';
+import { insertPhoto, uploadFile, photoLink } from './db.js';
 
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Bangkok';
 const ALLOWED = (process.env.CHANNEL_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -14,12 +14,27 @@ const MAX_PHOTOS = 10; // Discord จำกัดไฟล์ในช่อง�
 const REPORT_EMOJI = '📸'; // รีแอคอีโมจินี้ที่ข้อความรูป = ส่งเข้ารายงาน
 const MODAL_PREFIX = 'sendreport-modal:'; // ตามด้วย session id
 const SESSION_TTL_MS = 60 * 60 * 1000; // แคปชั่นที่รอให้เลือกรูปหมดอายุใน 1 ชม.
-const sessions = new Map(); // session id -> { caption, expires }
+const sessions = new Map(); // session id -> { caption, workers, expires }
+const WORKER_OPTIONS = ['คนทำ', 'คนทำ2', 'คนทำ3'];
 
-function newSession(id, caption) {
+function newSession(id, caption, workers) {
   const now = Date.now();
   for (const [k, v] of sessions) if (v.expires < now) sessions.delete(k);
-  sessions.set(id, { caption, expires: now + SESSION_TTL_MS });
+  sessions.set(id, { caption, workers, expires: now + SESSION_TTL_MS });
+}
+
+const displayName = (user, member) => member?.displayName ?? user.globalName ?? user.username;
+
+// คนทำจากช่อง คนทำ/คนทำ2/คนทำ3 ตัดคนซ้ำออก คืน [{ id, name }]
+function workersFrom(it) {
+  const workers = new Map();
+  for (const name of WORKER_OPTIONS) {
+    const user = it.options.getUser(name);
+    if (user && !workers.has(user.id)) {
+      workers.set(user.id, { id: user.id, name: displayName(user, it.options.getMember(name)) });
+    }
+  }
+  return [...workers.values()];
 }
 
 // en-CA ให้รูปแบบ YYYY-MM-DD
@@ -30,7 +45,10 @@ const dayFmt = new Intl.DateTimeFormat('en-CA', {
 const command = new SlashCommandBuilder()
   .setName('sendreport')
   .setDescription('ส่งรูปเข้ารายงานประจำเดือน (ใส่แคปชั่น แล้วเลือกรูป)')
-  .addStringOption((o) => o.setName('caption').setDescription('แคปชั่นของรูป').setRequired(true).setMaxLength(200));
+  .addStringOption((o) => o.setName('caption').setDescription('แคปชั่นของรูป').setRequired(true).setMaxLength(200))
+  .addUserOption((o) => o.setName('คนทำ').setDescription('คนที่ทำงานนี้').setRequired(true))
+  .addUserOption((o) => o.setName('คนทำ2').setDescription('คนทำคนที่ 2 (ถ้ามี)'))
+  .addUserOption((o) => o.setName('คนทำ3').setDescription('คนทำคนที่ 3 (ถ้ามี)'));
 
 const menuCommand = new ContextMenuCommandBuilder()
   .setName('ส่งเข้ารายงาน')
@@ -46,7 +64,7 @@ function channelAllowed(channelId) {
 
 // ดาวน์โหลดรูปจาก Discord อัปโหลดขึ้น Supabase Storage แล้วบันทึกลงฐานข้อมูล (ไม่เก็บอะไรในเครื่อง)
 // คืน true เมื่อบันทึกใหม่สำเร็จ
-async function savePhoto({ att, messageId, channelId, user, caption, takenAt }) {
+async function savePhoto({ att, messageId, channelId, user, caption, workers = [], takenAt }) {
   const day = dayFmt.format(takenAt);
   const month = day.slice(0, 7);
 
@@ -59,7 +77,7 @@ async function savePhoto({ att, messageId, channelId, user, caption, takenAt }) 
   const r = await insertPhoto({
     messageId, attachmentId: att.id, channelId,
     userId: user.id, username: user.displayName,
-    caption, filePath, takenAt, month, day,
+    caption, workers, filePath, takenAt, month, day,
   });
   return r.changes > 0;
 }
@@ -67,10 +85,11 @@ async function savePhoto({ att, messageId, channelId, user, caption, takenAt }) 
 // บันทึกรูปทั้งชุด คืนสรุปจำนวน
 async function saveAll(atts, base) {
   const images = [...atts].filter(isImage);
-  const result = { total: images.length, saved: 0, duplicate: 0, failed: [] };
+  const result = { total: images.length, saved: 0, duplicate: 0, failed: [], ok: [] };
   for (const att of images) {
     try {
       if (await savePhoto({ ...base, att })) result.saved++; else result.duplicate++;
+      result.ok.push(att);
     } catch (err) {
       console.error(`บันทึกรูปไม่สำเร็จ (${att.name}):`, err.message);
       result.failed.push(att.name);
@@ -84,6 +103,21 @@ function summary(r) {
   if (!r.saved && r.duplicate && !r.failed.length) return 'รูปนี้อยู่ในรายงานแล้ว';
   return `✅ บันทึก ${r.saved} รูปเข้ารายงานแล้ว` + (r.duplicate ? ` (ซ้ำ ${r.duplicate})` : '')
     + (r.failed.length ? `\n⚠️ ไม่สำเร็จ: ${r.failed.join(', ')}` : '');
+}
+
+// โพสต์รูปที่บันทึกแล้วลงช่อง ให้ทุกคนเห็นงาน (รูปจากหน้าต่างเลือกรูปคนอื่นมองไม่เห็น)
+// แท็กชื่อแต่ไม่ส่งแจ้งเตือน
+function postToChannel(it, atts, caption, workers) {
+  const lines = [`📸 **${caption}**`];
+  if (workers.length) lines.push(`👷 คนทำ: ${workers.map((w) => `<@${w.id}>`).join(' ')}`);
+  lines.push(`ส่งโดย <@${it.user.id}>`);
+  // <...> กันไม่ให้ Discord สร้างพรีวิวลิงก์ซ้ำกับรูปที่แนบ
+  lines.push(`🔗 ลิงก์รูป: ${atts.map((a, i) => `[${i + 1}](<${photoLink(a.id)}>)`).join(' ')}`);
+  return it.followUp({
+    content: lines.join('\n'),
+    files: atts.map((a) => ({ attachment: a.url, name: a.name })),
+    allowedMentions: { parse: [] },
+  });
 }
 
 // เก็บรูปทั้งหมดในข้อความหนึ่งๆ (ใช้กับเมนูคลิกขวาและรีแอค 📸)
@@ -147,7 +181,7 @@ export function startBot() {
           flags: MessageFlags.Ephemeral,
         });
       }
-      newSession(it.id, it.options.getString('caption', true));
+      newSession(it.id, it.options.getString('caption', true), workersFrom(it));
       return it.showModal(buildModal(it.id));
     }
 
@@ -163,16 +197,29 @@ export function startBot() {
       const files = it.fields.getUploadedFiles('photos', true);
       const r = await saveAll(files.values(), {
         messageId: it.id, channelId: it.channelId,
-        user: { id: it.user.id, displayName: it.member?.displayName ?? it.user.globalName ?? it.user.username },
-        caption: session.caption, takenAt: it.createdTimestamp,
+        user: { id: it.user.id, displayName: displayName(it.user, it.member) },
+        caption: session.caption, workers: session.workers, takenAt: it.createdTimestamp,
       });
-      return it.editReply(`${summary(r)}\n📝 ${session.caption}`);
+      await it.editReply(`${summary(r)}\n📝 ${session.caption}\n👷 ${session.workers.map((w) => w.name).join(', ')}`);
+      if (r.ok.length) {
+        try {
+          await postToChannel(it, r.ok, session.caption, session.workers);
+        } catch (err) {
+          console.error('โพสต์รูปลงช่องไม่สำเร็จ:', err.message);
+          await it.followUp({ content: '⚠️ บันทึกแล้ว แต่โพสต์รูปลงช่องไม่สำเร็จ (ไฟล์อาจใหญ่เกินไป)', flags: MessageFlags.Ephemeral });
+        }
+      }
+      return;
     }
 
     // คลิกขวาที่ข้อความ -> ส่งเข้ารายงาน
     if (it.isMessageContextMenuCommand() && it.commandName === menuCommand.name) {
       if (!channelAllowed(it.channelId)) {
         return it.reply({ content: 'ใช้ในช่องนี้ไม่ได้', flags: MessageFlags.Ephemeral });
+      }
+      // ข้อความของบอทคือรูปที่โพสต์จาก /sendreport ซึ่งอยู่ในรายงานแล้ว
+      if (it.targetMessage.author.bot) {
+        return it.reply({ content: 'รูปนี้อยู่ในรายงานแล้ว', flags: MessageFlags.Ephemeral });
       }
       await it.deferReply({ flags: MessageFlags.Ephemeral });
       const r = await saveMessageImages(it.targetMessage);
@@ -187,7 +234,7 @@ export function startBot() {
       if (reaction.message.partial) await reaction.message.fetch();
     } catch { return; }
     const m = reaction.message;
-    if (!channelAllowed(m.channelId)) return;
+    if (m.author?.bot || !channelAllowed(m.channelId)) return;
     const r = await saveMessageImages(m);
     if (r.saved) await m.react('✅').catch(() => {});
   });

@@ -17,9 +17,11 @@ async function jobRows(month) {
       date: dateFmt.format(j.taken_at),
       time: timeFmt.format(j.taken_at),
       username: j.username,
+      workers: j.workers.map((w) => w.name).join(', '),
       caption: j.caption,
       count: j.photos.length,
       files: j.photos.map((p) => path.basename(p.file_path)).join(', '),
+      links: j.photos.map((p) => p.link).join('\n'),
       job: j,
     })),
   };
@@ -29,8 +31,8 @@ const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
 export async function exportCsv(month) {
   const { rows } = await jobRows(month);
-  const head = ['ลำดับ', 'วันที่', 'เวลา', 'ผู้ส่ง', 'แคปชั่น', 'จำนวนรูป', 'ไฟล์รูป'];
-  const lines = [head, ...rows.map((r) => [r.no, r.date, r.time, r.username, r.caption, r.count, r.files])];
+  const head = ['ลำดับ', 'วันที่', 'เวลา', 'ผู้ส่ง', 'คนทำ', 'แคปชั่น', 'จำนวนรูป', 'ไฟล์รูป', 'ลิงก์รูป'];
+  const lines = [head, ...rows.map((r) => [r.no, r.date, r.time, r.username, r.workers, r.caption, r.count, r.files, r.links])];
   // BOM ให้ Excel เปิดภาษาไทยไม่เพี้ยน
   return '﻿' + lines.map((l) => l.map(csvCell).join(',')).join('\r\n');
 }
@@ -45,11 +47,13 @@ export async function exportXlsx(month) {
     { header: 'วันที่', key: 'date', width: 16 },
     { header: 'เวลา', key: 'time', width: 10 },
     { header: 'ผู้ส่ง', key: 'username', width: 22 },
+    { header: 'คนทำ', key: 'workers', width: 30 },
     { header: 'แคปชั่น', key: 'caption', width: 40 },
     { header: 'จำนวนรูป', key: 'count', width: 12 },
     { header: 'ไฟล์รูป', key: 'files', width: 60 },
+    { header: 'ลิงก์รูป', key: 'links', width: 50 },
   ];
-  rows.forEach((r) => jobs.addRow(r));
+  rows.forEach((r) => { jobs.addRow(r).getCell('links').alignment = { wrapText: true, vertical: 'top' }; });
   jobs.addRow({});
   jobs.addRow({ caption: `รวม ${report.totalJobs} งาน`, count: report.totalPhotos }).font = { bold: true };
 
@@ -58,11 +62,14 @@ export async function exportXlsx(month) {
     { header: 'งานที่', key: 'job', width: 8 },
     { header: 'แคปชั่น', key: 'caption', width: 40 },
     { header: 'ผู้ส่ง', key: 'username', width: 22 },
+    { header: 'คนทำ', key: 'workers', width: 30 },
     { header: 'ไฟล์', key: 'file', width: 50 },
+    { header: 'ลิงก์รูป', key: 'link', width: 50 },
   ];
   rows.forEach((r) => r.job.photos.forEach((p) => photos.addRow({
-    job: r.no, caption: r.caption, username: r.username, file: path.basename(p.file_path),
-  })));
+    job: r.no, caption: r.caption, username: r.username, workers: r.workers, file: path.basename(p.file_path),
+    link: { text: 'เปิดรูป', hyperlink: p.link },
+  }).getCell('link').font = { color: { argb: 'FF0563C1' }, underline: true }));
 
   for (const ws of [jobs, photos]) {
     ws.getRow(1).font = { bold: true };
