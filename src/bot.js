@@ -4,7 +4,7 @@ import {
   ModalBuilder, LabelBuilder, FileUploadBuilder,
 } from 'discord.js';
 import path from 'node:path';
-import { insertPhoto, uploadFile, photoLink } from './db.js';
+import { insertPhoto, uploadFile, photoLink, setJobUrl } from './db.js';
 
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Bangkok';
 const ALLOWED = (process.env.CHANNEL_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -64,7 +64,7 @@ function channelAllowed(channelId) {
 
 // ดาวน์โหลดรูปจาก Discord อัปโหลดขึ้น Supabase Storage แล้วบันทึกลงฐานข้อมูล (ไม่เก็บอะไรในเครื่อง)
 // คืน true เมื่อบันทึกใหม่สำเร็จ
-async function savePhoto({ att, messageId, channelId, user, caption, workers = [], takenAt }) {
+async function savePhoto({ att, messageId, channelId, channelName, messageUrl, user, caption, workers = [], takenAt }) {
   const day = dayFmt.format(takenAt);
   const month = day.slice(0, 7);
 
@@ -75,7 +75,7 @@ async function savePhoto({ att, messageId, channelId, user, caption, workers = [
   await uploadFile(filePath, Buffer.from(await res.arrayBuffer()), att.contentType ?? 'application/octet-stream');
 
   const r = await insertPhoto({
-    messageId, attachmentId: att.id, channelId,
+    messageId, attachmentId: att.id, channelId, channelName, messageUrl,
     userId: user.id, username: user.displayName,
     caption, workers, filePath, takenAt, month, day,
   });
@@ -123,7 +123,7 @@ function postToChannel(it, atts, caption, workers) {
 // เก็บรูปทั้งหมดในข้อความหนึ่งๆ (ใช้กับเมนูคลิกขวาและรีแอค 📸)
 function saveMessageImages(m) {
   return saveAll(m.attachments.values(), {
-    messageId: m.id, channelId: m.channelId,
+    messageId: m.id, channelId: m.channelId, channelName: m.channel?.name, messageUrl: m.url,
     user: { id: m.author.id, displayName: m.member?.displayName ?? m.author.globalName ?? m.author.username },
     caption: m.content ?? '', takenAt: m.createdTimestamp,
   });
@@ -196,14 +196,15 @@ export function startBot() {
       await it.deferReply({ flags: MessageFlags.Ephemeral });
       const files = it.fields.getUploadedFiles('photos', true);
       const r = await saveAll(files.values(), {
-        messageId: it.id, channelId: it.channelId,
+        messageId: it.id, channelId: it.channelId, channelName: it.channel?.name,
         user: { id: it.user.id, displayName: displayName(it.user, it.member) },
         caption: session.caption, workers: session.workers, takenAt: it.createdTimestamp,
       });
       await it.editReply(`${summary(r)}\n📝 ${session.caption}\n👷 ${session.workers.map((w) => w.name).join(', ')}`);
       if (r.ok.length) {
         try {
-          await postToChannel(it, r.ok, session.caption, session.workers);
+          const post = await postToChannel(it, r.ok, session.caption, session.workers);
+          await setJobUrl(it.id, post.url).catch((err) => console.error('บันทึกลิงก์โพสต์ไม่สำเร็จ:', err.message));
         } catch (err) {
           console.error('โพสต์รูปลงช่องไม่สำเร็จ:', err.message);
           await it.followUp({ content: '⚠️ บันทึกแล้ว แต่โพสต์รูปลงช่องไม่สำเร็จ (ไฟล์อาจใหญ่เกินไป)', flags: MessageFlags.Ephemeral });

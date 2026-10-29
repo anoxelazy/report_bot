@@ -22,6 +22,8 @@ async function jobRows(month) {
       count: j.photos.length,
       files: j.photos.map((p) => path.basename(p.file_path)).join(', '),
       links: j.photos.map((p) => p.link).join('\n'),
+      channel: j.channel_name ? `#${j.channel_name}` : '',
+      post: j.message_url ?? '',
       job: j,
     })),
   };
@@ -31,8 +33,10 @@ const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
 export async function exportCsv(month) {
   const { rows } = await jobRows(month);
-  const head = ['ลำดับ', 'วันที่', 'เวลา', 'ผู้ส่ง', 'คนทำ', 'แคปชั่น', 'จำนวนรูป', 'ไฟล์รูป', 'ลิงก์รูป'];
-  const lines = [head, ...rows.map((r) => [r.no, r.date, r.time, r.username, r.workers, r.caption, r.count, r.files, r.links])];
+  const head = ['ลำดับ', 'วันที่', 'เวลา', 'ห้อง', 'ผู้ส่ง', 'คนทำ', 'แคปชั่น', 'จำนวนรูป', 'ไฟล์รูป', 'ลิงก์รูป', 'โพสต์ Discord'];
+  const lines = [head, ...rows.map((r) => [
+    r.no, r.date, r.time, r.channel, r.username, r.workers, r.caption, r.count, r.files, r.links, r.post,
+  ])];
   // BOM ให้ Excel เปิดภาษาไทยไม่เพี้ยน
   return '﻿' + lines.map((l) => l.map(csvCell).join(',')).join('\r\n');
 }
@@ -46,14 +50,20 @@ export async function exportXlsx(month) {
     { header: 'ลำดับ', key: 'no', width: 8 },
     { header: 'วันที่', key: 'date', width: 16 },
     { header: 'เวลา', key: 'time', width: 10 },
+    { header: 'ห้อง', key: 'channel', width: 18 },
     { header: 'ผู้ส่ง', key: 'username', width: 22 },
     { header: 'คนทำ', key: 'workers', width: 30 },
     { header: 'แคปชั่น', key: 'caption', width: 40 },
     { header: 'จำนวนรูป', key: 'count', width: 12 },
     { header: 'ไฟล์รูป', key: 'files', width: 60 },
     { header: 'ลิงก์รูป', key: 'links', width: 50 },
+    { header: 'โพสต์ Discord', key: 'post', width: 16 },
   ];
-  rows.forEach((r) => { jobs.addRow(r).getCell('links').alignment = { wrapText: true, vertical: 'top' }; });
+  rows.forEach((r) => {
+    const row = jobs.addRow({ ...r, post: r.post ? { text: 'เปิดโพสต์', hyperlink: r.post } : '' });
+    row.getCell('links').alignment = { wrapText: true, vertical: 'top' };
+    if (r.post) row.getCell('post').font = { color: { argb: 'FF0563C1' }, underline: true };
+  });
   jobs.addRow({});
   jobs.addRow({ caption: `รวม ${report.totalJobs} งาน`, count: report.totalPhotos }).font = { bold: true };
 

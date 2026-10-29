@@ -43,9 +43,15 @@ export async function insertPhoto(p) {
   const data = check(await supabase.from('photos').upsert({
     message_id: p.messageId, attachment_id: p.attachmentId, channel_id: p.channelId,
     user_id: p.userId, username: p.username, caption: p.caption, workers: p.workers ?? [],
+    channel_name: p.channelName ?? null, message_url: p.messageUrl ?? null,
     file_path: p.filePath, taken_at: p.takenAt, month: p.month, day: p.day,
   }, { onConflict: 'attachment_id', ignoreDuplicates: true }).select('id'));
   return { changes: data.length };
+}
+
+// ลิงก์โพสต์ใน Discord ของงาน /sendreport (รู้หลังบันทึกรูปแล้วโพสต์ลงห้อง)
+export async function setJobUrl(messageId, url) {
+  check(await supabase.from('photos').update({ message_url: url }).eq('message_id', messageId));
 }
 
 // 1 งาน = รูปทั้งหมดที่ส่งมาพร้อมกันในครั้งเดียว (message_id เดียวกัน)
@@ -85,7 +91,10 @@ export async function monthReport(month, { sign = true } = {}) {
     let job = jobMap.get(p.message_id);
     if (!job) {
       const workers = p.workers ?? [];
-      job = { id: p.message_id, caption: p.caption, username: p.username, workers, taken_at: p.taken_at, photos: [] };
+      job = {
+        id: p.message_id, caption: p.caption, username: p.username, workers, taken_at: p.taken_at,
+        channel_name: p.channel_name, message_url: p.message_url, photos: [],
+      };
       jobMap.set(p.message_id, job);
       for (const w of workers) {
         let s = workerStats.get(w.id);
