@@ -63,7 +63,9 @@
   .jobs { display: grid; gap: 16px; }
   .job { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; break-inside: avoid;
     display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: 16px; align-items: start; }
+  .job { border-left-width: 5px; } /* แถบสีซ้ายของการ์ด = สีของผู้ส่ง */
   .detail { min-width: 0; }
+  .chip { display: inline-block; color: #fff; border-radius: 99px; padding: 1px 10px; font-size: .82rem; margin: 1px 4px 1px 0; }
   @media (max-width: 720px) { .job { grid-template-columns: 1fr; } }
   .job h3 { margin: 0 0 2px; font-size: 1.05rem; }
   .info { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 10px 0 12px; font-size: .88rem; }
@@ -125,6 +127,15 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtTime = (ms) => new Date(ms).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+
+// สีประจำตัวแต่ละคน คิดจากชื่อ คนเดิมได้สีเดิมทุกที่ (ตัวอักษรขาวอ่านได้ทุกสี)
+const PERSON_COLORS = ['#5865f2', '#2f9e44', '#e8590c', '#c2255c', '#1971c2', '#9c36b5', '#0c8599', '#e03131', '#5c940d', '#8d5524'];
+function personColor(name) {
+  let h = 0;
+  for (const ch of name ?? '') h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return PERSON_COLORS[h % PERSON_COLORS.length];
+}
+const chip = (name) => `<span class="chip" style="background:${personColor(name)}">${esc(name)}</span>`;
 
 let viewing = { srcs: [], i: 0 };
 
@@ -215,8 +226,8 @@ async function loadReport(month) {
   $('users').innerHTML = r.byUser.length
     ? r.byUser.map((u) => `
         <li>
-          <span class="av">${esc(Array.from(u.username)[0] ?? '?')}</span>
-          <div class="who"><div class="nm">${esc(u.username)}</div><div class="meter"><i style="width:${(u.jobs / topJobs) * 100}%"></i></div></div>
+          <span class="av" style="background:${personColor(u.username)}">${esc(Array.from(u.username)[0] ?? '?')}</span>
+          <div class="who"><div class="nm">${esc(u.username)}</div><div class="meter"><i style="width:${(u.jobs / topJobs) * 100}%;background:${personColor(u.username)}"></i></div></div>
           <div class="cnt"><b>${u.jobs} งาน</b><small>${u.photos} รูป</small></div>
         </li>`).join('')
     : '<li style="color:var(--muted)">ยังไม่มีผู้ส่งงานในเดือนนี้</li>';
@@ -225,20 +236,20 @@ async function loadReport(month) {
   $('workers').innerHTML = r.byWorker.length
     ? r.byWorker.map((w) => `
         <li>
-          <span class="av">${esc(Array.from(w.name)[0] ?? '?')}</span>
-          <div class="who"><div class="nm">${esc(w.name)}</div><div class="meter"><i style="width:${(w.jobs / topWorker) * 100}%"></i></div></div>
+          <span class="av" style="background:${personColor(w.name)}">${esc(Array.from(w.name)[0] ?? '?')}</span>
+          <div class="who"><div class="nm">${esc(w.name)}</div><div class="meter"><i style="width:${(w.jobs / topWorker) * 100}%;background:${personColor(w.name)}"></i></div></div>
           <div class="cnt"><b>${w.jobs} งาน</b></div>
         </li>`).join('')
     : '<li style="color:var(--muted)">ยังไม่มีข้อมูลคนทำในเดือนนี้</li>';
 
   $('jobsList').innerHTML = r.jobs.length
     ? r.jobs.map((j, n) => `
-        <article class="job">
+        <article class="job" style="border-left-color:${personColor(j.username)}">
           <div class="detail">
           <h3>${esc(j.caption) || '<i>ไม่มีแคปชั่น</i>'}<span class="badge">${j.photos.length} รูป</span></h3>
           <dl class="info">
-            <dt>👷 คนทำ</dt><dd>${j.workers.length ? esc(j.workers.map((w) => w.name).join(', ')) : '<span class="none">ไม่ระบุ</span>'}</dd>
-            <dt>📤 ส่งโดย</dt><dd>${esc(j.username)}</dd>
+            <dt>👷 คนทำ</dt><dd>${j.workers.length ? j.workers.map((w) => chip(w.name)).join(' ') : '<span class="none">ไม่ระบุ</span>'}</dd>
+            <dt>📤 ส่งโดย</dt><dd>${chip(j.username)}</dd>
             <dt>🕒 เวลา</dt><dd>${fmtTime(j.taken_at)}</dd>
             ${j.channel_name ? `<dt>💬 ห้อง</dt><dd>#${esc(j.channel_name)}</dd>` : ''}
             <dt>🔗 ลิงก์รูป</dt><dd>${j.photos.map((p, k) => `<a href="${p.link}" target="_blank" rel="noopener">${k + 1}</a>`).join(' ')}</dd>
