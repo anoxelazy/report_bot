@@ -18,7 +18,9 @@
   header { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
   h1 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
   .sub { margin: 4px 0 0; color: var(--muted); font-size: .95rem; }
-  .live { color: #23a55a; font-size: .8rem; margin-left: 8px; }
+  /* จุดสถานะ: เขียว = realtime, เหลือง = เช็คทุก 15 วินาที */
+  .live { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-left: 8px; vertical-align: middle; background: #f0b232; }
+  .live.on { background: #23a55a; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .btn, select { font: inherit; font-size: .9rem; height: 38px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: border-color .15s, color .15s; }
   .btn:hover, select:hover { border-color: var(--accent); color: var(--accent); }
@@ -90,7 +92,7 @@
   <header>
     <div>
       <h1>📸 รายงานรูปประจำเดือน</h1>
-      <p class="sub"><span id="subtitle">&nbsp;</span> <span class="live" id="live">● อัปเดตทุก 15 วินาที</span></p>
+      <p class="sub"><span id="subtitle">&nbsp;</span> <span class="live" id="live" title="อัปเดตทุก 15 วินาที"></span></p>
     </div>
     <div class="controls">
       <select id="month" aria-label="เลือกเดือน"></select>
@@ -171,7 +173,8 @@ async function startRealtime() {
     .on('broadcast', { event: 'new_photo' }, scheduleRefresh)
     .subscribe((status, err) => {
       const live = status === 'SUBSCRIBED';
-      $('live').textContent = live ? '● อัปเดตทันที' : '● อัปเดตทุก 15 วินาที';
+      $('live').classList.toggle('on', live);
+      $('live').title = live ? 'อัปเดตทันที' : 'อัปเดตทุก 15 วินาที';
       if (!live) console.warn('realtime:', status, err?.message ?? '');
       // ต่อใหม่หลังหลุด (เช่น คอมพ์หลับ) อาจพลาดสัญญาณไป จึงโหลดใหม่หนึ่งครั้ง
       if (live && connectedBefore) scheduleRefresh();
