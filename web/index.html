@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>รายงานรูปประจำเดือน</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --text: #1d2330; --muted: #6b7385;
+    --accent: #5865f2; --border: #e3e6ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161c; --card: #1e212a; --text: #e8eaf0; --muted: #9097a8; --border: #2c303b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, "Noto Sans Thai", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; justify-content: space-between; margin-bottom: 20px; }
+  h1 { margin: 0; font-size: 1.5rem; line-height: 1.2; }
+  .sub { margin: 4px 0 0; color: var(--muted); font-size: .95rem; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .btn, select { font: inherit; font-size: .9rem; height: 38px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: border-color .15s, color .15s; }
+  .btn:hover, select:hover { border-color: var(--accent); color: var(--accent); }
+  select { font-weight: 600; padding-right: 8px; }
+  .sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+  .stats { display: grid; gap: 12px; grid-template-columns: repeat(4, 1fr); margin-bottom: 12px; }
+  .stat { display: flex; align-items: center; gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .ico { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font-size: 1.3rem; background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .lbl { font-size: .8rem; color: var(--muted); }
+  .big { font-size: 1.8rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+  .split { display: grid; gap: 12px; grid-template-columns: 2fr 1fr; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+  .card h2 { margin: 0 0 14px; font-size: .9rem; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .card h2 small { font-weight: 400; color: var(--muted); font-size: .8rem; }
+  .bars { display: flex; gap: 2px; height: 150px; }
+  .col { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; position: relative; }
+  .col .bar { width: 100%; background: var(--accent); opacity: .75; border-radius: 3px 3px 0 0; }
+  .col .bar.peak { opacity: 1; }
+  .col.zero .bar { height: 2px; background: var(--border); opacity: 1; }
+  .col span { height: 18px; line-height: 18px; font-size: .65rem; color: var(--muted); }
+  .col:hover .bar { opacity: 1; }
+  .col:hover::after { content: attr(data-tip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #000; color: #fff; padding: 2px 8px; border-radius: 6px; font-size: .72rem; white-space: nowrap; z-index: 2; }
+  .users { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .users li { display: flex; align-items: center; gap: 10px; }
+  .av { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; background: var(--accent); }
+  .who { flex: 1; min-width: 0; }
+  .nm { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meter { height: 5px; border-radius: 3px; background: var(--border); margin-top: 5px; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+  .cnt { text-align: right; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  .cnt small { display: block; color: var(--muted); font-size: .75rem; }
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .split { grid-template-columns: 1fr; }
+    .sep { display: none; }
+    .stat { padding: 12px; gap: 10px; } .ico { width: 38px; height: 38px; }
+    .big { font-size: 1.5rem; }
+  }
+  .jobs { display: grid; gap: 16px; }
+  .job { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; break-inside: avoid; }
+  .job h3 { margin: 0 0 2px; font-size: 1.05rem; }
+  .job .meta { color: var(--muted); font-size: .85rem; margin-bottom: 12px; }
+  .badge { display: inline-block; background: var(--accent); color: #fff; border-radius: 99px; padding: 1px 10px; font-size: .75rem; margin-left: 8px; vertical-align: middle; }
+  .thumbs { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .thumbs img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: zoom-in; display: block; }
+  .empty { text-align: center; color: var(--muted); padding: 48px 0; }
+  dialog { border: 0; padding: 0; background: transparent; max-width: 95vw; }
+  dialog::backdrop { background: rgba(0,0,0,.8); }
+  .nav { position: fixed; top: 50%; transform: translateY(-50%); font-size: 2rem; background: rgba(0,0,0,.5); color: #fff; border: 0; border-radius: 50%; width: 44px; height: 44px; padding: 0; }
+  #prev { left: 12px; } #next { right: 12px; }
+  dialog img { max-width: 95vw; max-height: 90vh; border-radius: 8px; }
+  @media print { .controls, dialog { display: none; } body { background: #fff; color: #000; } dialog { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>📸 รายงานรูปประจำเดือน</h1>
+      <p class="sub" id="subtitle">&nbsp;</p>
+    </div>
+    <div class="controls">
+      <select id="month" aria-label="เลือกเดือน"></select>
+      <span class="sep"></span>
+      <button class="btn" id="print">🖨 PDF</button>
+      <a class="btn" id="xlsx" download>📊 Excel</a>
+      <a class="btn" id="csv" download>📄 CSV</a>
+      <a class="btn" id="zip" download>🗂 ZIP รูป</a>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><span class="ico">🗂</span><div><div class="lbl">จำนวนงาน</div><div class="big" id="jobs">0</div></div></div>
+    <div class="stat"><span class="ico">🖼</span><div><div class="lbl">รูปทั้งหมด</div><div class="big" id="total">0</div></div></div>
+    <div class="stat"><span class="ico">👥</span><div><div class="lbl">จำนวนผู้ส่ง</div><div class="big" id="people">0</div></div></div>
+    <div class="stat"><span class="ico">📈</span><div><div class="lbl">เฉลี่ยงานต่อวัน</div><div class="big" id="avg">0</div></div></div>
+  </section>
+
+  <section class="split">
+    <div class="card"><h2>จำนวนงานรายวัน <small id="peak"></small></h2><div class="bars" id="bars"></div></div>
+    <div class="card"><h2>ผู้ส่งงาน</h2><ul class="users" id="users"></ul></div>
+  </section>
+
+  <section class="jobs" id="jobsList"></section>
+  <dialog id="viewer"><button class="nav" id="prev" aria-label="ก่อนหน้า">‹</button><img alt=""><button class="nav" id="next" aria-label="ถัดไป">›</button></dialog>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtTime = (ms) => new Date(ms).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+
+let viewing = { srcs: [], i: 0 };
+
+async function loadMonths() {
+  const months = await (await fetch('/api/months')).json();
+  const sel = $('month');
+  if (!months.length) {
+    const now = new Date().toISOString().slice(0, 7);
+    sel.innerHTML = `<option value="${now}">${now}</option>`;
+  } else {
+    sel.innerHTML = months.map((m) => `<option value="${m.month}">${m.month} (${m.jobs} งาน / ${m.photos} รูป)</option>`).join('');
+  }
+  loadReport(sel.value);
+}
+
+function setExportLinks(month) {
+  for (const f of ['xlsx', 'csv', 'zip']) $(f).href = `/api/export/${month}/${f}`;
+}
+
+async function loadReport(month) {
+  setExportLinks(month);
+  const r = await (await fetch(`/api/report/${month}`)).json();
+  $('jobs').textContent = r.totalJobs;
+  $('total').textContent = r.totalPhotos;
+  $('people').textContent = r.byUser.length;
+  $('avg').textContent = r.byDay.length ? (r.totalJobs / r.byDay.length).toFixed(1) : 0;
+
+  const [y, m] = month.split('-').map(Number);
+  $('subtitle').textContent = new Date(y, m - 1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+
+  // กราฟแสดงครบทุกวันของเดือน (วันที่ไม่มีงานเป็นแท่งว่าง)
+  const perDay = new Map(r.byDay.map((d) => [Number(d.day.slice(8)), d.count]));
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const max = Math.max(1, ...perDay.values());
+  const peakDay = [...perDay].reduce((best, cur) => (cur[1] > (best?.[1] ?? 0) ? cur : best), null);
+  $('peak').textContent = peakDay ? `สูงสุด วันที่ ${peakDay[0]} (${peakDay[1]} งาน)` : '';
+  $('bars').innerHTML = Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1;
+    const n = perDay.get(day) ?? 0;
+    const label = day === 1 || day % 5 === 0 ? day : '';
+    return `<div class="col${n ? '' : ' zero'}" data-tip="วันที่ ${day}: ${n} งาน">
+      <div class="bar${peakDay && peakDay[0] === day ? ' peak' : ''}" style="height:${n ? Math.max(4, (n / max) * 100) + '%' : ''}"></div><span>${label}</span></div>`;
+  }).join('');
+
+  const topJobs = Math.max(1, ...r.byUser.map((u) => u.jobs));
+  $('users').innerHTML = r.byUser.length
+    ? r.byUser.map((u) => `
+        <li>
+          <span class="av">${esc(Array.from(u.username)[0] ?? '?')}</span>
+          <div class="who"><div class="nm">${esc(u.username)}</div><div class="meter"><i style="width:${(u.jobs / topJobs) * 100}%"></i></div></div>
+          <div class="cnt"><b>${u.jobs} งาน</b><small>${u.photos} รูป</small></div>
+        </li>`).join('')
+    : '<li style="color:var(--muted)">ยังไม่มีผู้ส่งงานในเดือนนี้</li>';
+
+  $('jobsList').innerHTML = r.jobs.length
+    ? r.jobs.map((j, n) => `
+        <article class="job">
+          <h3>${esc(j.caption) || '<i>ไม่มีแคปชั่น</i>'}<span class="badge">${j.photos.length} รูป</span></h3>
+          <div class="meta">${esc(j.username)} · ${fmtTime(j.taken_at)}</div>
+          <div class="thumbs" data-job="${n}">
+            ${j.photos.map((p, k) => `<img loading="lazy" data-k="${k}" src="${p.url}" alt="${esc(j.caption || 'รูปงาน')} ${k + 1}">`).join('')}
+          </div>
+        </article>`).join('')
+    : '<div class="empty">ยังไม่มีงานในเดือนนี้</div>';
+  window.__jobs = r.jobs;
+}
+
+function show(i) {
+  const n = viewing.srcs.length;
+  viewing.i = (i + n) % n;
+  $('viewer').querySelector('img').src = viewing.srcs[viewing.i];
+}
+
+$('month').addEventListener('change', (e) => loadReport(e.target.value));
+$('print').addEventListener('click', () => window.print());
+$('jobsList').addEventListener('click', (e) => {
+  if (e.target.tagName !== 'IMG') return;
+  const job = window.__jobs[Number(e.target.parentElement.dataset.job)];
+  viewing.srcs = job.photos.map((p) => p.url);
+  show(Number(e.target.dataset.k));
+  $('viewer').showModal();
+});
+$('prev').addEventListener('click', (e) => { e.stopPropagation(); show(viewing.i - 1); });
+$('next').addEventListener('click', (e) => { e.stopPropagation(); show(viewing.i + 1); });
+$('viewer').addEventListener('click', () => $('viewer').close());
+document.addEventListener('keydown', (e) => {
+  if (!$('viewer').open) return;
+  if (e.key === 'ArrowLeft') show(viewing.i - 1);
+  if (e.key === 'ArrowRight') show(viewing.i + 1);
+});
+
+loadMonths();
+</script>
+</body>
+</html>
