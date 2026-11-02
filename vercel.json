@@ -1,4 +1,5 @@
 {
+  "regions": ["sin1"],
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
   "functions": {
     "api/index.js": { "includeFiles": "web/**" }
