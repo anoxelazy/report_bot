@@ -10,6 +10,31 @@ const WEB_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'w
 export function createApp() {
   const app = express();
   const password = process.env.DASHBOARD_PASSWORD;
+  app.disable('x-powered-by');
+
+  // security headers ใส่ที่ Express เพราะบน Vercel ทุกเส้นทางถูก rewrite มาที่ฟังก์ชันนี้ (ใช้ได้ทั้งในเครื่องและบน Vercel)
+  // รูปมาจาก signed URL ของ Supabase และ realtime ใช้ wss ไปที่ Supabase
+  const supabase = process.env.SUPABASE_URL ?? '';
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' https://cdn.jsdelivr.net",
+    "style-src 'self' 'unsafe-inline'",
+    `img-src 'self' ${supabase}`,
+    `connect-src 'self' ${supabase} ${supabase.replace(/^http/, 'ws')}`,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join('; ');
+  app.use((_req, res, next) => {
+    res.set({
+      'Content-Security-Policy': csp,
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+    });
+    next();
+  });
 
   if (password) {
     app.use((req, res, next) => {
