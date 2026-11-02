@@ -118,8 +118,31 @@ async function loadReport(month) {
         </li>`).join('')
     : '<li style="color:var(--muted)">ยังไม่มีข้อมูลคนทำในเดือนนี้</li>';
 
-  $('jobsList').innerHTML = r.jobs.length
-    ? r.jobs.map((j, n) => `
+  report = r;
+  fillPeople(r.jobs);
+  renderJobs();
+}
+
+// กรองงานตามคน: งานที่คนนั้นเป็นคนทำหรือเป็นคนส่ง (ค่าว่าง = ทุกคน)
+let report = { jobs: [] };
+const hasPerson = (j, name) => j.username === name || j.workers.some((w) => w.name === name);
+
+// คงคนที่เลือกไว้ตอนรีเฟรช ถ้าเดือนนี้ยังมีคนนั้นอยู่
+function fillPeople(jobs) {
+  const sel = $('person');
+  const keep = sel.value;
+  const names = [...new Set(jobs.flatMap((j) => [...j.workers.map((w) => w.name), j.username]))]
+    .sort((a, b) => a.localeCompare(b, 'th'));
+  sel.innerHTML = '<option value="">👥 ทุกคน</option>'
+    + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sel.value = names.includes(keep) ? keep : '';
+}
+
+function renderJobs() {
+  const person = $('person').value;
+  const jobs = person ? report.jobs.filter((j) => hasPerson(j, person)) : report.jobs;
+  $('jobsList').innerHTML = jobs.length
+    ? jobs.map((j, n) => `
         <article class="job" style="border-left-color:${personColor(j.username)}">
           <div class="detail">
           <h3>${esc(j.caption) || '<i>ไม่มีแคปชั่น</i>'}<span class="badge">${j.photos.length} รูป</span></h3>
@@ -136,8 +159,8 @@ async function loadReport(month) {
             ${j.photos.map((p, k) => `<img loading="lazy" data-k="${k}" src="${esc(p.url)}" alt="${esc(j.caption || 'รูปงาน')} ${k + 1}">`).join('')}
           </div>
         </article>`).join('')
-    : '<div class="empty">ยังไม่มีงานในเดือนนี้</div>';
-  window.__jobs = r.jobs;
+    : `<div class="empty">${person ? `ไม่มีงานของ ${esc(person)} ในเดือนนี้` : 'ยังไม่มีงานในเดือนนี้'}</div>`;
+  window.__jobs = jobs;
 }
 
 function show(i) {
@@ -148,6 +171,7 @@ function show(i) {
 }
 
 $('month').addEventListener('change', (e) => loadReport(e.target.value));
+$('person').addEventListener('change', renderJobs);
 $('print').addEventListener('click', () => window.print());
 $('jobsList').addEventListener('click', (e) => {
   if (e.target.tagName !== 'IMG') return;
