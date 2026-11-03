@@ -36,7 +36,8 @@ const csvLink = (url, text) => `"=HYPERLINK(""${url}"",""${text}"")"`;
 
 // 1 ช่องมีลิงก์ได้ลิงก์เดียว จึงแยกรูปละคอลัมน์ ตามจำนวนรูปของงานที่มีรูปมากที่สุด
 const maxPhotos = (rows) => Math.max(1, ...rows.map((r) => r.links.length));
-const photoHeads = (n) => Array.from({ length: n }, (_, i) => `รูป ${i + 1}`);
+const photoLabel = (i) => `photo${i + 1}`; // ชื่อลิงก์รูปแบบเดียวกันทั้งหัวคอลัมน์ Excel และ CSV
+const photoHeads = (n) => Array.from({ length: n }, (_, i) => photoLabel(i));
 
 export async function exportCsv(month) {
   const { rows } = await jobRows(month);
@@ -44,7 +45,7 @@ export async function exportCsv(month) {
   const head = ['ลำดับ', 'วันที่', 'เวลา', 'ห้อง', 'ผู้ส่ง', 'คนทำ', 'แคปชั่น', 'จำนวนรูป', 'ไฟล์รูป', 'โพสต์ Discord', ...photoHeads(n)];
   const lines = [head.map(csvCell).join(','), ...rows.map((r) => [
     ...[r.no, r.date, r.time, r.channel, r.username, r.workers, r.caption, r.count, r.files, r.post].map(csvCell),
-    ...Array.from({ length: n }, (_, i) => (r.links[i] ? csvLink(r.links[i], `รูป ${i + 1}`) : '""')),
+    ...Array.from({ length: n }, (_, i) => (r.links[i] ? csvLink(r.links[i], photoLabel(i)) : '""')),
   ].join(','))];
   // BOM ให้ Excel เปิดภาษาไทยไม่เพี้ยน
   return '﻿' + lines.join('\r\n');
@@ -76,7 +77,7 @@ export async function exportXlsx(month) {
     if (r.post) row.getCell('post').font = LINK_FONT;
     links.forEach((link, i) => {
       const cell = row.getCell(`p${i}`);
-      cell.value = { text: `รูป ${i + 1}`, hyperlink: link };
+      cell.value = { text: photoLabel(i), hyperlink: link };
       cell.font = LINK_FONT;
     });
   });
@@ -92,9 +93,9 @@ export async function exportXlsx(month) {
     { header: 'ไฟล์', key: 'file', width: 50 },
     { header: 'ลิงก์รูป', key: 'link', width: 50 },
   ];
-  rows.forEach((r) => r.job.photos.forEach((p) => photos.addRow({
+  rows.forEach((r) => r.job.photos.forEach((p, k) => photos.addRow({
     job: r.no, caption: r.caption, username: r.username, workers: r.workers, file: path.basename(p.file_path),
-    link: { text: 'เปิดรูป', hyperlink: p.link },
+    link: { text: photoLabel(k), hyperlink: p.link },
   }).getCell('link').font = LINK_FONT));
 
   for (const ws of [jobs, photos]) {
