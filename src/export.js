@@ -21,7 +21,7 @@ async function jobRows(month) {
       caption: j.caption,
       count: j.photos.length,
       files: j.photos.map((p) => path.basename(p.file_path)).join(', '),
-      links: j.photos.map((p) => p.link).join('\n'),
+      links: j.photos.map((p) => p.link),
       channel: j.channel_name ? `#${j.channel_name}` : '',
       post: j.message_url ?? '',
       job: j,
@@ -29,17 +29,28 @@ async function jobRows(month) {
   };
 }
 
-const csvCell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+// ข้อความที่ขึ้นต้นด้วย = + - @ ใส่ ' นำหน้า กัน Excel ตีความเป็นสูตร (ข้อความมาจากผู้ใช้ใน Discord)
+const csvCell = (v) => `"${String(v ?? '').replace(/^[=+\-@\t\r]/, "'$&").replace(/"/g, '""')}"`;
+// ลิงก์รูปเป็นสูตร HYPERLINK ให้กดได้ใน Excel (ไม่ผ่าน csvCell เพราะต้องการให้เป็นสูตร)
+const csvLink = (url, text) => `"=HYPERLINK(""${url}"",""${text}"")"`;
+
+// 1 ช่องมีลิงก์ได้ลิงก์เดียว จึงแยกรูปละคอลัมน์ ตามจำนวนรูปของงานที่มีรูปมากที่สุด
+const maxPhotos = (rows) => Math.max(1, ...rows.map((r) => r.links.length));
+const photoHeads = (n) => Array.from({ length: n }, (_, i) => `รูป ${i + 1}`);
 
 export async function exportCsv(month) {
   const { rows } = await jobRows(month);
-  const head = ['ลำดับ', 'วันที่', 'เวลา', 'ห้อง', 'ผู้ส่ง', 'คนทำ', 'แคปชั่น', 'จำนวนรูป', 'ไฟล์รูป', 'ลิงก์รูป', 'โพสต์ Discord'];
-  const lines = [head, ...rows.map((r) => [
-    r.no, r.date, r.time, r.channel, r.username, r.workers, r.caption, r.count, r.files, r.links, r.post,
-  ])];
+  const n = maxPhotos(rows);
+  const head = ['ลำดับ', 'วันที่', 'เวลา', 'ห้อง', 'ผู้ส่ง', 'คนทำ', 'แคปชั่น', 'จำนวนรูป', 'ไฟล์รูป', 'โพสต์ Discord', ...photoHeads(n)];
+  const lines = [head.map(csvCell).join(','), ...rows.map((r) => [
+    ...[r.no, r.date, r.time, r.channel, r.username, r.workers, r.caption, r.count, r.files, r.post].map(csvCell),
+    ...Array.from({ length: n }, (_, i) => (r.links[i] ? csvLink(r.links[i], `รูป ${i + 1}`) : '""')),
+  ].join(','))];
   // BOM ให้ Excel เปิดภาษาไทยไม่เพี้ยน
-  return '﻿' + lines.map((l) => l.map(csvCell).join(',')).join('\r\n');
+  return '﻿' + lines.join('\r\n');
 }
+
+const LINK_FONT = { color: { argb: 'FF0563C1' }, underline: true };
 
 export async function exportXlsx(month) {
   const { report, rows } = await jobRows(month);
@@ -56,13 +67,18 @@ export async function exportXlsx(month) {
     { header: 'แคปชั่น', key: 'caption', width: 40 },
     { header: 'จำนวนรูป', key: 'count', width: 12 },
     { header: 'ไฟล์รูป', key: 'files', width: 60 },
-    { header: 'ลิงก์รูป', key: 'links', width: 50 },
     { header: 'โพสต์ Discord', key: 'post', width: 16 },
+    ...photoHeads(maxPhotos(rows)).map((h, i) => ({ header: h, key: `p${i}`, width: 10 })),
   ];
   rows.forEach((r) => {
-    const row = jobs.addRow({ ...r, post: r.post ? { text: 'เปิดโพสต์', hyperlink: r.post } : '' });
-    row.getCell('links').alignment = { wrapText: true, vertical: 'top' };
-    if (r.post) row.getCell('post').font = { color: { argb: 'FF0563C1' }, underline: true };
+    const { links, ...rest } = r;
+    const row = jobs.addRow({ ...rest, post: r.post ? { text: 'เปิดโพสต์', hyperlink: r.post } : '' });
+    if (r.post) row.getCell('post').font = LINK_FONT;
+    links.forEach((link, i) => {
+      const cell = row.getCell(`p${i}`);
+      cell.value = { text: `รูป ${i + 1}`, hyperlink: link };
+      cell.font = LINK_FONT;
+    });
   });
   jobs.addRow({});
   jobs.addRow({ caption: `รวม ${report.totalJobs} งาน`, count: report.totalPhotos }).font = { bold: true };
@@ -79,7 +95,7 @@ export async function exportXlsx(month) {
   rows.forEach((r) => r.job.photos.forEach((p) => photos.addRow({
     job: r.no, caption: r.caption, username: r.username, workers: r.workers, file: path.basename(p.file_path),
     link: { text: 'เปิดรูป', hyperlink: p.link },
-  }).getCell('link').font = { color: { argb: 'FF0563C1' }, underline: true }));
+  }).getCell('link').font = LINK_FONT));
 
   for (const ws of [jobs, photos]) {
     ws.getRow(1).font = { bold: true };
