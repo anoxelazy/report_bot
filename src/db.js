@@ -38,20 +38,28 @@ export async function downloadFile(filePath) {
   return Buffer.from(await blob.arrayBuffer());
 }
 
-// คืน { changes: 1 } เมื่อเพิ่มแถวใหม่ หรือ { changes: 0 } เมื่อรูปนี้มีอยู่แล้ว
+// คืน id ของเคส (1 ข้อความ Discord = 1 เคส) สร้างใหม่ถ้ายังไม่มี เคสที่มีอยู่แล้วไม่แก้ข้อมูล
+async function jobId(p) {
+  const created = check(await supabase.from('jobs').upsert({
+    message_id: p.messageId, channel_id: p.channelId, channel_name: p.channelName ?? null,
+    user_id: p.userId, username: p.username, caption: p.caption ?? '', workers: p.workers ?? [],
+    message_url: p.messageUrl ?? null, taken_at: p.takenAt, month: p.month, day: p.day,
+  }, { onConflict: 'message_id', ignoreDuplicates: true }).select('id'));
+  if (created.length) return created[0].id;
+  return check(await supabase.from('jobs').select('id').eq('message_id', p.messageId).single()).id;
+}
+
+// คืน { changes: 1 } เมื่อเพิ่มรูปใหม่ หรือ { changes: 0 } เมื่อรูปนี้มีอยู่แล้ว
 export async function insertPhoto(p) {
   const data = check(await supabase.from('photos').upsert({
-    message_id: p.messageId, attachment_id: p.attachmentId, channel_id: p.channelId,
-    user_id: p.userId, username: p.username, caption: p.caption, workers: p.workers ?? [],
-    channel_name: p.channelName ?? null, message_url: p.messageUrl ?? null,
-    file_path: p.filePath, taken_at: p.takenAt, month: p.month, day: p.day,
+    job_id: await jobId(p), attachment_id: p.attachmentId, file_path: p.filePath,
   }, { onConflict: 'attachment_id', ignoreDuplicates: true }).select('id'));
   return { changes: data.length };
 }
 
 // ลิงก์โพสต์ใน Discord ของงาน /sendreport (รู้หลังบันทึกรูปแล้วโพสต์ลงห้อง)
 export async function setJobUrl(messageId, url) {
-  check(await supabase.from('photos').update({ message_url: url }).eq('message_id', messageId));
+  check(await supabase.from('jobs').update({ message_url: url }).eq('message_id', messageId));
 }
 
 // 1 งาน = รูปทั้งหมดที่ส่งมาพร้อมกันในครั้งเดียว (message_id เดียวกัน)
@@ -59,14 +67,16 @@ export async function listMonths() {
   return check(await supabase.from('month_summary').select('month, jobs, photos').order('month', { ascending: false }));
 }
 
-async function monthRows(month) {
+// เคสของเดือน พร้อมรูปของแต่ละเคส (ข้ามเคสที่ไม่มีรูป เช่น อัปโหลดไม่สำเร็จ)
+async function monthJobs(month) {
   const rows = [];
   for (let from = 0; ; from += PAGE) {
-    const data = check(await supabase.from('photos').select('*').eq('month', month)
+    const data = check(await supabase.from('jobs').select('*, photos(id, attachment_id, file_path)').eq('month', month)
       .order('taken_at', { ascending: false }).order('id', { ascending: true })
+      .order('id', { referencedTable: 'photos', ascending: true })
       .range(from, from + PAGE - 1));
     rows.push(...data);
-    if (data.length < PAGE) return rows;
+    if (data.length < PAGE) return rows.filter((j) => j.photos.length);
   }
 }
 
@@ -81,51 +91,44 @@ async function signUrls(paths) {
 
 // sign=false เมื่อไม่ต้องใช้ลิงก์รูป (เช่น ส่งออก CSV/Excel/ZIP)
 export async function monthReport(month, { sign = true } = {}) {
-  const rows = await monthRows(month);
+  const rows = await monthJobs(month);
 
   const jobMap = new Map();
-  const dayJobs = new Map(); // day -> Set(message_id)
-  const userStats = new Map(); // user_id -> { username, jobs:Set, photos }
+  const dayJobs = new Map(); // day -> จำนวนเคส
+  const userStats = new Map(); // user_id -> { username, jobs, photos }
   const workerStats = new Map(); // worker id -> { name, jobs }
-  for (const p of rows) {
-    let job = jobMap.get(p.message_id);
-    if (!job) {
-      const workers = p.workers ?? [];
-      job = {
-        id: p.message_id, caption: p.caption, username: p.username, workers, taken_at: p.taken_at,
-        channel_name: p.channel_name, message_url: p.message_url, photos: [],
-      };
-      jobMap.set(p.message_id, job);
-      for (const w of workers) {
-        let s = workerStats.get(w.id);
-        if (!s) workerStats.set(w.id, (s = { name: w.name, jobs: 0 }));
-        s.jobs++;
-      }
+  for (const j of rows) {
+    const workers = j.workers ?? [];
+    jobMap.set(j.id, {
+      id: j.id, caption: j.caption, username: j.username, workers, taken_at: j.taken_at,
+      channel_name: j.channel_name, message_url: j.message_url,
+      photos: j.photos.map((p) => ({ id: p.id, file_path: p.file_path, link: photoLink(p.attachment_id) })),
+    });
+    for (const w of workers) {
+      let s = workerStats.get(w.id);
+      if (!s) workerStats.set(w.id, (s = { name: w.name, jobs: 0 }));
+      s.jobs++;
     }
-    job.photos.push({ id: p.id, file_path: p.file_path, link: photoLink(p.attachment_id) });
+    dayJobs.set(j.day, (dayJobs.get(j.day) ?? 0) + 1);
 
-    if (!dayJobs.has(p.day)) dayJobs.set(p.day, new Set());
-    dayJobs.get(p.day).add(p.message_id);
-
-    let u = userStats.get(p.user_id);
-    if (!u) userStats.set(p.user_id, (u = { username: p.username, jobs: new Set(), photos: 0 }));
-    u.jobs.add(p.message_id);
-    u.photos++;
+    let u = userStats.get(j.user_id);
+    if (!u) userStats.set(j.user_id, (u = { username: j.username, jobs: 0, photos: 0 }));
+    u.jobs++;
+    u.photos += j.photos.length;
   }
 
+  const allPhotos = [...jobMap.values()].flatMap((j) => j.photos);
   if (sign) {
-    const urls = await signUrls(rows.map((p) => p.file_path));
-    for (const job of jobMap.values()) for (const ph of job.photos) ph.url = urls.get(ph.file_path) ?? '';
+    const urls = await signUrls(allPhotos.map((p) => p.file_path));
+    for (const ph of allPhotos) ph.url = urls.get(ph.file_path) ?? '';
   }
 
   return {
     month,
     totalJobs: jobMap.size,
-    totalPhotos: rows.length,
-    byDay: [...dayJobs].map(([day, s]) => ({ day, count: s.size })).sort((a, b) => a.day.localeCompare(b.day)),
-    byUser: [...userStats.values()]
-      .map((u) => ({ username: u.username, jobs: u.jobs.size, photos: u.photos }))
-      .sort((a, b) => b.jobs - a.jobs),
+    totalPhotos: allPhotos.length,
+    byDay: [...dayJobs].map(([day, count]) => ({ day, count })).sort((a, b) => a.day.localeCompare(b.day)),
+    byUser: [...userStats.values()].sort((a, b) => b.jobs - a.jobs),
     byWorker: [...workerStats.values()].sort((a, b) => b.jobs - a.jobs),
     jobs: [...jobMap.values()],
   };
